@@ -1,4 +1,4 @@
-praw
+requests
 openai
 python-dotenv
 pandas

@@ -1,7 +1,9 @@
-"""Pre-label raw_comments.csv using Cerebras llama-3.3-70b.
+"""Pre-label raw_posts.csv using Cerebras llama-3.3-70b.
 
 label_suggested is write-once: rows already in working_annotations.csv are
 never re-labeled, preserving the draft history for disclosure.
+story_title is carried through as a read-only context column for human review;
+it is not passed to the model.
 """
 import os
 import re
@@ -12,29 +14,32 @@ from typing import Optional
 VALID_LABELS = {"analysis", "hot_take", "reaction"}
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-RAW_PATH = DATA_DIR / "raw_comments.csv"
+RAW_PATH = DATA_DIR / "raw_posts.csv"
 WORK_PATH = DATA_DIR / "working_annotations.csv"
 
 CLASSIFICATION_PROMPT = """\
-You are a text classifier. Classify the following r/formula1 comment into exactly one of:
+You are a text classifier. Classify the following Hacker News comment into exactly one of:
   analysis, hot_take, reaction
 
 Definitions:
-- analysis: a structured claim backed by specific, verifiable evidence (tactics, strategy, \
-stats, regulations, or a technical mechanism). Strip the opinion framing — the evidence \
-still stands on its own as an argument.
+- analysis: a structured claim backed by specific, verifiable evidence (a mechanism, \
+benchmark, technical reasoning, or citation). Strip the opinion framing — the evidence \
+still stands on its own as an argument. \
+Example: "The latency win isn't the Rust rewrite — they moved the hot path off the GC'd \
+heap; you'd get the same gain in Go with a sync.Pool."
 - hot_take: a bold, confident opinion asserted without real evidence. Technical vocabulary \
-alone does NOT make a post analysis. If removing the opinion framing leaves nothing — \
-it is hot_take.
-- reaction: emotion- or humor-driven; no argued claim. Memes, banter, copypasta, \
-in-the-moment feelings.
+alone does NOT make a comment analysis. If removing the opinion framing leaves nothing \
+substantive — it is hot_take. \
+Example: "Kubernetes is wildly over-engineered for 99% of companies. Just use a VM."
+- reaction: emotion- or humor-driven; short quips, jokes, praise, snark. No argued claim. \
+Example: "This is the most beautiful codebase I've seen all year, wow."
 
 Decision rules:
 1. hot_take vs analysis: if removing the opinion framing leaves genuine supporting \
-evidence → analysis. If the evidence is decorative (one cherry-picked stat or a \
-technical noun with no argument behind it) → hot_take.
-   Example trap: "Mercedes' floor concept is fundamentally wrong, full stop" → hot_take \
-(technical noun, no mechanism).
+evidence → analysis. If the evidence is a decorative technical noun or one cherry-picked \
+detail with no argument behind it → hot_take. \
+   Example trap: "Their architecture fundamentally can't scale, the event loop blocks on \
+I/O, full stop" → hot_take (names real concepts, shows no mechanism).
 2. reaction vs hot_take (sarcasm): if the primary act is asserting a position, even \
 sarcastically → hot_take. If the primary act is the joke/bit itself with no real \
 position under it → reaction.
@@ -113,11 +118,11 @@ def main() -> None:
     if WORK_PATH.exists():
         existing_df = pd.read_csv(WORK_PATH, dtype=str)
         already_labeled_ids = set(
-            existing_df.loc[existing_df["label_suggested"].notna(), "comment_id"]
+            existing_df.loc[existing_df["label_suggested"].notna(), "objectID"]
         )
         print(f"Resuming: {len(already_labeled_ids)} rows already pre-labeled, skipping.")
 
-    to_process = raw_df[~raw_df["comment_id"].isin(already_labeled_ids)].copy()
+    to_process = raw_df[~raw_df["objectID"].isin(already_labeled_ids)].copy()
     print(f"Pre-labeling {len(to_process)} new rows via Cerebras…")
 
     new_rows = []
@@ -128,10 +133,11 @@ def main() -> None:
         if label_suggested is None:
             label_suggested = "unknown"
             unknown_count += 1
-            print(f"  WARNING: unparseable response for comment_id={row['comment_id']}")
+            print(f"  WARNING: unparseable response for objectID={row['objectID']}")
         new_rows.append({
-            "comment_id": row["comment_id"],
+            "objectID": row["objectID"],
             "text": text,
+            "story_title": row.get("story_title", ""),
             "label_suggested": label_suggested,
             "label": "",
             "prelabeled": True,

@@ -1,111 +1,107 @@
-"""Fetch ~250 public top-level comments from r/formula1 into data/raw_comments.csv.
+"""Fetch ~250 HN comments from Algolia into data/raw_posts.csv.
 
-Thread priority (per CLAUDE.md):
-  1. Post-race discussion threads   — balanced mix of all three label classes
-  2. Race-day live threads          — heavy on `reaction`, some `hot_take`
-  3. Daily discussion thread        — general mix
-  4. Technical / strategy threads   — deliberately over-sampled to fill `analysis`
-
-`analysis` is rare in comment sections so we hit technical threads last to
-top up the quota rather than relying on random collection.
+Six topic queries at even quota (~45 each) keep all three label classes
+distributed across domains and prevent any single topic from dominating.
+Dedup on objectID across all queries before writing.
 """
-import os
+import html as html_mod
+import re
 import sys
 from pathlib import Path
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-OUT_PATH = DATA_DIR / "raw_comments.csv"
+OUT_PATH = DATA_DIR / "raw_posts.csv"
 
-TARGET_TOTAL = 250
-MIN_WARN = 200
-MIN_TEXT_LEN = 20  # skip one-word non-signal comments like "lol" or "yes"
+ALGOLIA_URL = "https://hn.algolia.com/api/v1/search"
+QUOTA_PER_QUERY = 45
 
-DELETED = {"[deleted]", "[removed]"}
-
-# (search query, sort, limit, source_type label, comment quota per thread)
-THREAD_SPECS = [
-    ("Post Race Discussion",  "new", 4, "race_thread",     40),
-    ("Race Thread",           "new", 3, "race_thread",     30),
-    ("Daily Discussion",      "new", 2, "daily",           25),
-    ("flair:Technical",       "new", 5, "strategy_thread", 35),
-    ("strategy analysis",     "new", 5, "strategy_thread", 30),
-    ("technical breakdown",   "new", 4, "strategy_thread", 25),
+# Five domains from CLAUDE.md: AI/agentic, programming, infra/startups, quantum, space.
+# Six queries so no single topic dominates after dedup.
+QUERIES = [
+    "llm agents",
+    "rust borrow checker",
+    "kubernetes",
+    "quantum error correction",
+    "startup failure",
+    "rocket engine",
 ]
 
+_HIRING_RE = re.compile(r"^Ask HN: Who is hiring", re.IGNORECASE)
 
-def _collect_from_submission(submission, source_type: str, per_thread_limit: int) -> list[dict]:
-    import praw.models
-    submission.comments.replace_more(limit=0)
+
+def strip_html(raw: str) -> str:
+    """Strip HTML tags and unescape entities; preserve casing and punctuation."""
+    text = re.sub(r"<[^>]+>", " ", raw)
+    text = html_mod.unescape(text)
+    # Collapse runs of whitespace introduced by removed tags
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return text.strip()
+
+
+def fetch_query(query: str, session, limit: int = 100) -> list[dict]:
+    """Return up to `limit` non-hiring comment rows for one query."""
+    resp = session.get(
+        ALGOLIA_URL,
+        params={"query": query, "tags": "comment", "hitsPerPage": limit},
+        timeout=15,
+    )
+    resp.raise_for_status()
     rows = []
-    for comment in submission.comments:
-        if not isinstance(comment, praw.models.Comment):
+    for h in resp.json().get("hits", []):
+        story_title = h.get("story_title") or ""
+        if _HIRING_RE.match(story_title):
             continue
-        text = comment.body
-        if text in DELETED or len(text) < MIN_TEXT_LEN:
+        raw_text = h.get("comment_text") or ""
+        text = strip_html(raw_text)
+        if not text:
             continue
         rows.append({
-            "comment_id": comment.id,
             "text": text,
-            "thread_title": submission.title,
-            "thread_flair": submission.link_flair_text or "",
-            "source_type": source_type,
+            "story_title": story_title,
+            "author": h.get("author", ""),
+            "objectID": h.get("objectID", ""),
+            "created_at": h.get("created_at", ""),
         })
-        if len(rows) >= per_thread_limit:
-            break
     return rows
 
 
 def main() -> None:
-    import praw
+    import requests
     import pandas as pd
-    from dotenv import load_dotenv
 
-    load_dotenv()
-
-    client_id = os.environ.get("REDDIT_CLIENT_ID")
-    client_secret = os.environ.get("REDDIT_CLIENT_SECRET")
-    user_agent = os.environ.get("REDDIT_USER_AGENT")
-
-    if not all([client_id, client_secret, user_agent]):
-        sys.exit(
-            "ERROR: set REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT in .env"
-        )
-
-    reddit = praw.Reddit(
-        client_id=client_id,
-        client_secret=client_secret,
-        user_agent=user_agent,
-        read_only=True,
-    )
-
-    subreddit = reddit.subreddit("formula1")
+    session = requests.Session()
     all_rows: list[dict] = []
     seen_ids: set[str] = set()
 
-    for query, sort, n_threads, source_type, per_thread in THREAD_SPECS:
-        print(f"  Fetching '{query}' threads (limit={n_threads}, {per_thread} comments each)…")
-        for submission in subreddit.search(query, sort=sort, limit=n_threads, time_filter="month"):
-            rows = _collect_from_submission(submission, source_type, per_thread)
-            new = [r for r in rows if r["comment_id"] not in seen_ids]
-            seen_ids.update(r["comment_id"] for r in new)
-            all_rows.extend(new)
-            print(f"    [{source_type}] '{submission.title[:60]}' → {len(new)} comments")
+    print("Fetching HN comments via Algolia…\n")
 
-    df = pd.DataFrame(all_rows)
+    per_query: dict[str, int] = {}
+    for query in QUERIES:
+        candidates = fetch_query(query, session, limit=100)
+        fresh = [r for r in candidates if r["objectID"] not in seen_ids]
+        kept = fresh[:QUOTA_PER_QUERY]
+        seen_ids.update(r["objectID"] for r in kept)
+        all_rows.extend(kept)
+        per_query[query] = len(kept)
+        dupes = len(candidates) - len(fresh)
+        print(
+            f"  {query!r:30s} → {len(kept):3d} kept"
+            f"  (fetched {len(candidates)}, {dupes} cross-query dupes dropped)"
+        )
+
+    df = pd.DataFrame(
+        all_rows,
+        columns=["text", "story_title", "author", "objectID", "created_at"],
+    )
     DATA_DIR.mkdir(exist_ok=True)
     df.to_csv(OUT_PATH, index=False)
 
-    total = len(df)
-    print(f"\nCollected {total} unique comments → {OUT_PATH}")
-
-    source_dist = df["source_type"].value_counts()
-    print("\nBy source type:")
-    for src, count in source_dist.items():
-        print(f"  {src}: {count}")
-
-    if total < MIN_WARN:
-        print(f"\nWARNING: only {total} candidates (target ≥ {MIN_WARN}). "
-              "Consider expanding search queries or increasing thread limits.")
+    print(f"\nTotal: {len(df)} unique candidates → {OUT_PATH}")
+    if len(df) < 200:
+        print(
+            f"\nWARNING: only {len(df)} candidates (target ≥ 200). "
+            "Increase QUOTA_PER_QUERY or add more queries."
+        )
 
 
 if __name__ == "__main__":

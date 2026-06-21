@@ -1,6 +1,6 @@
 # TakeMeter
 
-A fine-tuned text classifier that sorts r/formula1 comments by *what kind of discourse they are* — a reasoned argument, a bare opinion, or a gut reaction. It doesn't judge whether a take is right; it separates posts that do analytical work from posts that just assert or react.
+A fine-tuned text classifier that sorts Hacker News comments by *what kind of discourse they are* — a reasoned argument, a bare opinion, or a gut reaction. It doesn't judge whether a take is right; it separates comments that do analytical work from comments that just assert or react.
 
 ---
 
@@ -19,7 +19,7 @@ A fine-tuned text classifier that sorts r/formula1 comments by *what kind of dis
 ```mermaid
 flowchart TD
     subgraph Pipeline["Data pipeline — local"]
-        R[r/formula1 threads] -->|PRAW fetch| RAW[raw_comments.csv]
+        R[Hacker News comments] -->|Algolia search API<br/>no auth| RAW[raw_posts.csv]
         RAW -->|Cerebras llama-3.3-70b<br/>pre-label drafts| WORK["working_annotations.csv<br/>(label_suggested)"]
         WORK -->|human reviews & corrects<br/>EVERY row| FINAL["takemeter_dataset.csv<br/>text · label · notes"]
     end
@@ -46,7 +46,7 @@ The load-bearing edge is the human-review step: pre-labels are drafts only, and 
 
 ## Community
 
-**r/formula1.** F1 race threads are a clean fit because one event produces all three kinds of discourse at once: a strategist breaking down tyre deg and undercut windows, a fan declaring a driver "finished," and someone just screaming at the safety car. The community already polices this distinction — "source?" and "that's not analysis, that's a hot take" are native phrases — so the boundary I'm modeling is one regulars recognize, not one imposed from outside.
+**Hacker News.** A single technical thread produces all three kinds of discourse at once: someone walking through a mechanism with benchmarks, someone declaring a tool dead with no support, and someone posting a one-line quip. The community already polices this distinction — "source?" and "[citation needed]" are native, and low-effort hot takes get challenged in replies — so the boundary I'm modeling is one regulars recognize, not one imposed from outside. Collection is weighted toward topics I know well (AI/agentic engineering, programming, quantum, space) so annotation stays consistent.
 
 ---
 
@@ -62,17 +62,17 @@ Three labels on a single axis: descending analytical substance.
 
 **Examples**
 
-- `analysis` — *"Strat call was insane — pitting under the VSC saved ~11s vs staying out, that's the whole podium."* / *"He's quicker on the softs but his tyre deg over a stint has been the worst on the grid all season, that's why they go long."*
-- `hot_take` — *"Verstappen is just better than everyone, end of."* / *"Mercedes hasn't won because their floor concept is fundamentally wrong, full stop."*
-- `reaction` — *"CRASHHHH did you SEE that"* / *"Imagine being a Williams fan in 2026, couldn't be me 💀"*
+- `analysis` — *"The latency win isn't the Rust rewrite — they moved the hot path off the GC'd heap; you'd get the same gain in Go with a sync.Pool."* / *"They're close to surface-code thresholds, but 'close' means you're on the pessimistic side of physical-qubits-per-logical-qubit, so the overhead is still enormous."*
+- `hot_take` — *"Kubernetes is wildly over-engineered for 99% of companies. Just use a VM."* / *"Microservices were always a mistake, full stop."*
+- `reaction` — *"This is the most beautiful codebase I've seen all year, wow."* / *"lol the bot reviewing its own PR before stalebot closes it"*
 
 ---
 
 ## Dataset
 
-**Source.** Public top-level comments from r/formula1, collected from post-race discussion threads, race-day live threads, the daily discussion thread, and technical/strategy threads (to fill the rarer `analysis` class).
+**Source.** Public Hacker News comments via the Algolia HN Search API (`hn.algolia.com/api/v1/search?tags=comment`) — open, no auth. Collected with an even quota across six debate-heavy technical topics (`llm agents`, `rust borrow checker`, `kubernetes`, `quantum error correction`, `startup failure`, `rocket engine`) chosen to surface the rarer `analysis` class. Deduplicated on `objectID` to prevent train/test leakage; boilerplate ("Who is hiring") threads filtered by title; HTML stripped to plain text.
 
-**Labeling process.** Comments were collected via a PRAW fetch script, pre-labeled by Cerebras `llama-3.3-70b` as drafts, then **every row was reviewed and corrected by hand** against the definitions above. Pre-labeling is disclosed in [AI usage](#ai-usage). Text was preserved exactly — emoji, casing, and punctuation are real signal, especially for `reaction`.
+**Labeling process.** Comments were collected via the HN Algolia API, pre-labeled by Cerebras `llama-3.3-70b` as drafts, then **every row was reviewed and corrected by hand** against the definitions above. Pre-labeling is disclosed in [AI usage](#ai-usage). HN comment HTML was stripped to plain text, but casing and punctuation were otherwise preserved — they're real signal, especially for `reaction`.
 
 **Label distribution.**
 
@@ -89,7 +89,7 @@ Three labels on a single axis: descending analytical substance.
 
 > ⬜ **TODO (during annotation):** replace with 3 real posts that gave you pause. Seed below is the predicted hard case — keep it if a real one matches.
 
-1. *"Mercedes' floor concept is fundamentally wrong, full stop."* — technical vocabulary but no mechanism or evidence. **Decided `hot_take`:** technical nouns don't make a post `analysis`; there's no argument under the assertion.
+1. *"Their architecture fundamentally can't scale — the event loop blocks on I/O, full stop."* — technical vocabulary but no mechanism or evidence. **Decided `hot_take`:** naming real concepts doesn't make a comment `analysis`; there's no argument under the assertion.
 2. _TODO — a sarcasm case sitting between `reaction` and `hot_take`._
 3. _TODO — your third real edge case._
 
