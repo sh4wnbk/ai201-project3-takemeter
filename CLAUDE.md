@@ -40,7 +40,9 @@ Three stages. Stage 3 is the human's, not yours.
 ## Hard rules / guardrails
 
 - **Never produce the final labeled dataset.** You may generate `label_suggested` drafts only. The `label` column is the human's. Do not copy `label_suggested` into `label`.
+- **`label_suggested` is write-once.** Once pre-labeling writes a draft, never mutate it. The human's corrections go to the separate `label` column; the draft stays intact. This is what lets the human report how many drafts they overrode for the disclosure — overwriting the draft destroys that history. (This is the same class of bug flagged in a prior review: accumulated state must preserve the full history of decisions, not just the latest one.)
 - **Preserve text exactly** — keep emoji, casing ("CRASHHHH"), and punctuation. They are real signal for `reaction`. Do not lowercase, strip emoji, or "clean" the text.
+- **Design for offline testability.** Any logic that can be separated from a network call must be. In `prelabel.py`, the response-to-label mapping goes in a pure function — `parse_label(raw_response: str) -> str` — that takes a string and returns one of the three labels (or flags an unparseable response), with no API call inside it. The Cerebras call stays a thin wrapper around it. This makes the parsing unit-testable without hitting the API, which is the highest-leverage habit flagged in prior reviews.
 - **Balance:** after collection, print the candidate count and, after pre-labeling, the `label_suggested` distribution. Flag if any class looks likely to exceed 70% so the human can rebalance before reviewing.
 - **Secrets:** `.env` is gitignored and never committed. Reddit and Cerebras credentials live there only.
 - **Disclosure:** pre-labeling is AI assistance that must be disclosed in the README. Keep `prelabeled` in the working file so the human can report how many rows were pre-labeled and how many they corrected.
@@ -65,15 +67,27 @@ ai201-project3-takemeter/
 │   ├── collect.py
 │   ├── prelabel.py
 │   └── export_dataset.py
+├── tests/
+│   ├── test_parse_label.py     # offline: parse_label() normalizes/rejects raw responses
+│   └── test_export.py          # offline: export skips unlabeled rows, preserves text exactly
 └── app/
     └── interface.py            # Gradio stretch feature (built later)
 ```
 
 ## Stack / environment
 
-- **Local scripts:** Python, `praw` (Reddit), `openai` (Cerebras client), `python-dotenv`, `pandas`. These go in `requirements.txt`.
+- **Local scripts:** Python, `praw` (Reddit), `openai` (Cerebras client), `python-dotenv`, `pandas`, `pytest`. These go in `requirements.txt`.
 - **Model training + eval:** happens in a separate **Google Colab** notebook (`distilbert-base-uncased`, T4 GPU, 3 epochs, lr 2e-5, batch 16, 70/15/15 split). Do **not** add transformers/torch training code to this repo — it lives in Colab. The notebook also runs the Cerebras zero-shot baseline (Section 5).
 - **`.env` keys:** `CEREBRAS_API_KEY`, plus Reddit `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` / `REDDIT_USER_AGENT` for PRAW.
+
+## Testing (build test-first, not after)
+
+Write these as you build the scripts, not at the end. All must run offline — no network, no credentials.
+
+- `tests/test_parse_label.py` — exercises `parse_label()` from `prelabel.py`: clean labels (`"analysis"`), messy ones that should normalize (`"  Analysis."`, `"the label is hot_take"`), and garbage that should be rejected/flagged rather than silently mislabeled.
+- `tests/test_export.py` — exercises `export_dataset.py`: rows with an empty `label` are excluded from the final CSV; `text` is preserved byte-for-byte (emoji and casing intact, no cleaning); output has exactly the three columns `text`, `label`, `notes`.
+
+`pytest` must pass before the handoff is considered done.
 
 ## Stretch features committed (later phases)
 
@@ -83,4 +97,4 @@ ai201-project3-takemeter/
 
 ## Definition of done for THIS handoff
 
-Repo scaffolded; `.gitignore` + `requirements.txt` in place; `collect.py`, `prelabel.py`, `export_dataset.py` written and runnable; `data/` schemas created. Collection and pre-labeling can be *run* once the human provides credentials. The final `label` column is left empty for the human.
+Repo scaffolded; `.gitignore` + `requirements.txt` in place; `collect.py`, `prelabel.py` (with `parse_label()` as a pure, network-free function), `export_dataset.py` written and runnable; `data/` schemas created; `tests/test_parse_label.py` and `tests/test_export.py` written and passing under `pytest`. Collection and pre-labeling can be *run* once the human provides credentials. The final `label` column is left empty for the human.

@@ -1,0 +1,5 @@
+praw
+openai
+python-dotenv
+pandas
+pytest
