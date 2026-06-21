@@ -1,4 +1,4 @@
-"""Pre-label raw_posts.csv using Cerebras llama-3.3-70b.
+"""Pre-label raw_posts.csv using Anthropic claude-haiku-4-5.
 
 label_suggested is write-once: rows already in working_annotations.csv are
 never re-labeled, preserving the draft history for disclosure.
@@ -83,15 +83,27 @@ def _build_prompt(text: str) -> str:
     return CLASSIFICATION_PROMPT.format(text=text)
 
 
-def _call_cerebras(text: str, client) -> Optional[str]:
-    response = client.chat.completions.create(
-        model="llama-3.3-70b",
-        messages=[{"role": "user", "content": _build_prompt(text)}],
-        temperature=0,
-        max_tokens=10,
-    )
-    raw = response.choices[0].message.content or ""
-    return parse_label(raw)
+def _call_api(text: str, client) -> Optional[str]:
+    import time
+    import anthropic
+
+    wait = 30
+    for attempt in range(4):
+        try:
+            response = client.messages.create(
+                model="claude-haiku-4-5",
+                messages=[{"role": "user", "content": _build_prompt(text)}],
+                temperature=0,
+                max_tokens=10,
+            )
+            raw = response.content[0].text if response.content else ""
+            return parse_label(raw)
+        except anthropic.RateLimitError:
+            if attempt == 3:
+                raise
+            print(f"  rate limit hit — waiting {wait}s before retry {attempt + 1}/3…")
+            time.sleep(wait)
+            wait *= 2
 
 
 def main() -> None:
@@ -100,15 +112,15 @@ def main() -> None:
 
     load_dotenv()
 
-    api_key = os.environ.get("CEREBRAS_API_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        sys.exit("ERROR: CEREBRAS_API_KEY not set in .env")
+        sys.exit("ERROR: ANTHROPIC_API_KEY not set in .env")
 
     if not RAW_PATH.exists():
         sys.exit(f"ERROR: {RAW_PATH} not found — run collect.py first")
 
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key, base_url="https://api.cerebras.ai/v1")
+    from anthropic import Anthropic
+    client = Anthropic(api_key=api_key, timeout=30)
 
     raw_df = pd.read_csv(RAW_PATH, dtype=str)
 
@@ -123,17 +135,21 @@ def main() -> None:
         print(f"Resuming: {len(already_labeled_ids)} rows already pre-labeled, skipping.")
 
     to_process = raw_df[~raw_df["objectID"].isin(already_labeled_ids)].copy()
-    print(f"Pre-labeling {len(to_process)} new rows via Cerebras…")
+    print(f"Pre-labeling {len(to_process)} new rows via Anthropic claude-haiku-4-5…")
 
     new_rows = []
     unknown_count = 0
-    for _, row in to_process.iterrows():
+    for i, (_, row) in enumerate(to_process.iterrows()):
+        if i > 0:
+            import time; time.sleep(0.5)
         text = row["text"]
-        label_suggested = _call_cerebras(text, client)
+        label_suggested = _call_api(text, client)
         if label_suggested is None:
             label_suggested = "unknown"
             unknown_count += 1
-            print(f"  WARNING: unparseable response for objectID={row['objectID']}")
+            print(f"  [{i+1:3d}] UNPARSED  objectID={row['objectID']}", flush=True)
+        else:
+            print(f"  [{i+1:3d}] {label_suggested:<10}  objectID={row['objectID']}", flush=True)
         new_rows.append({
             "objectID": row["objectID"],
             "text": text,
