@@ -204,7 +204,18 @@ Rows = true label, columns = predicted. The diagonal is correct; off-diagonal ce
 
 ### Deployed interface
 
-> ⬜ **TODO:** Gradio app — post in, label + confidence out. Document how to run it here (`python app/interface.py`, or the Colab cell + share link).
+`app/interface.py` is a Gradio app: paste a comment, get the predicted label with
+per-class confidence.
+
+1. Train the model in the Colab notebook, then save it:
+
+   `trainer.save_model("takemeter-model"); tokenizer.save_pretrained("takemeter-model")`
+
+2. Download the `takemeter-model/` folder into the repo root.
+
+3. `pip install gradio transformers torch`
+
+4. `python app/interface.py` → open the printed local URL.
 
 ---
 

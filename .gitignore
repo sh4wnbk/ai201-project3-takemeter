@@ -8,3 +8,4 @@ __pycache__/
 data/*.csv
 !data/takemeter_dataset.csv
 .DS_Store
+takemeter-model/
