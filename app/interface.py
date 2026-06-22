@@ -13,9 +13,15 @@ def classify(comment):
     if not comment or not comment.strip():
         return {}
     inputs = tokenizer(comment, return_tensors="pt", truncation=True, max_length=256)
+    inputs.pop("token_type_ids", None)
     with torch.no_grad():
         probs = torch.nn.functional.softmax(model(**inputs).logits, dim=-1)[0].tolist()
     return {ID_TO_LABEL[i]: float(probs[i]) for i in range(len(probs))}
+
+CARD_CSS = """
+.examples td { font-size: 14px !important; line-height: 1.5 !important;
+               padding: 8px 12px !important; white-space: normal !important; }
+"""
 
 demo = gr.Interface(
     fn=classify,
@@ -23,6 +29,7 @@ demo = gr.Interface(
     outputs=gr.Label(num_top_classes=3, label="Predicted discourse type"),
     title="TakeMeter — HN discourse classifier",
     description="Classifies a comment as analysis, hot_take, or reaction. Fine-tuned DistilBERT.",
+    css=CARD_CSS,
     examples=[
         ["The latency win isn't the Rust rewrite — they moved the hot path off the GC'd heap; you'd get the same gain in Go with a sync.Pool."],
         ["Kubernetes is wildly over-engineered for 99% of companies. Just use a VM."],
