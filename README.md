@@ -80,10 +80,10 @@ Three labels on a single axis: descending analytical substance.
 
 | Label | Count |
 |-------|-------|
-| `analysis` | _TODO_ |
-| `hot_take` | _TODO_ |
-| `reaction` | _TODO_ |
-| **Total** | _TODO (≥200)_ |
+| `analysis` | 144 |
+| `hot_take` | 80 |
+| `reaction` | 46 |
+| **Total** | 270 |
 
 **Three genuinely difficult examples.**
 
