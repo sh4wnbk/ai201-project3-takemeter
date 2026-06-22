@@ -27,8 +27,10 @@ demo = gr.Interface(
         ["The latency win isn't the Rust rewrite — they moved the hot path off the GC'd heap; you'd get the same gain in Go with a sync.Pool."],
         ["Kubernetes is wildly over-engineered for 99% of companies. Just use a VM."],
         ["This is the most beautiful codebase I've seen all year, wow."],
+        ["The JVM's garbage collector is fundamentally incompatible with low-latency production workloads. GC pauses kill p99 at scale, full stop."],
+        ["Distributed consensus is the bottleneck in every Raft-based system at scale. You can't engineer your way out of it."],
     ],
 )
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(share=True)
