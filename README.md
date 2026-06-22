@@ -111,7 +111,33 @@ The default recipe (3 epochs, standard cross-entropy) failed: on the 53% `analys
 
 **Prompt used.**
 
-> ⬜ **TODO:** paste the final classification prompt.
+```
+You are classifying comments from Hacker News by the kind of discourse they are.
+Assign each comment to exactly one of the following categories.
+
+analysis: a structured claim backed by specific, verifiable evidence — a mechanism,
+benchmarks, technical reasoning, or a citation. If you strip the opinion, the evidence
+still stands.
+Example: "The latency win isn't the Rust rewrite — they moved the hot path off the GC'd
+heap; you'd get the same gain in Go with a sync.Pool."
+
+hot_take: a bold, confident opinion asserted without real evidence. It may name-drop a
+technical concept for effect, not as an argument.
+Example: "Kubernetes is wildly over-engineered for 99% of companies. Just use a VM."
+
+reaction: a non-analytical comment driven by emotion or humor — a quip, joke, snark, or
+short praise. No argued claim.
+Example: "This is the most beautiful codebase I've seen all year, wow."
+
+Respond with ONLY the label name. Do not explain your reasoning.
+
+Valid labels:
+analysis
+hot_take
+reaction
+```
+
+Sent as the `system` message; user turn was `"Classify this post:\n\n{text}"`. Temperature 0, `max_tokens` 20.
 
 ---
 
