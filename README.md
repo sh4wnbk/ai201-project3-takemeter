@@ -268,4 +268,4 @@ Confidence is meaningful and the model is **well-calibrated**: accuracy rises mo
 
 ## Demo video
 
-> ⬜ **TODO:** link to the 3–5 minute demo (3–5 posts classified with label + confidence, one correct prediction explained, one incorrect explained, brief eval-report walkthrough).
+[Watch the demo video](https://drive.google.com/file/d/1gmJ-IzZb8_NJJl2Zy_JCSaLl1Ebe6XZb/view?usp=sharing) (3–5 min) — 3 posts classified with label and confidence, one correct prediction explained, one incorrect (JVM/GC vocabulary trap), brief evaluation report walkthrough.
