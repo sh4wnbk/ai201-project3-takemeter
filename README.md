@@ -76,8 +76,6 @@ Three labels on a single axis: descending analytical substance.
 
 **Label distribution.**
 
-> ⬜ **TODO (after annotation):** fill counts. No single label may exceed 70%.
-
 | Label | Count |
 |-------|-------|
 | `analysis` | 144 |
@@ -101,7 +99,7 @@ Three labels on a single axis: descending analytical substance.
 
 **Key training decision.**
 
-> ⬜ **TODO:** describe one decision with reasoning or observation — not "I used the default." If you kept defaults, justify why (e.g., "with ~140 training examples, 3 epochs was enough to converge without overfitting — val loss flattened after epoch 2"). If you changed something, say what and why.
+The default recipe (3 epochs, standard cross-entropy) failed: on the 53% `analysis` majority, the first run collapsed — the model predicted `analysis` for all 41 test examples, scoring 0.54 accuracy by ignoring the other two classes entirely. Three changes fixed it: (1) **inverse-frequency weighted cross-entropy** to stop the loss from being dominated by the majority class; (2) **8 epochs** instead of 3, because the weighted loss learns more slowly and needs more passes to converge; (3) **macro-F1 as the checkpoint-selection metric** rather than accuracy, because accuracy rewards the collapse and would have selected the wrong checkpoint. The recovery was confirmed by the confusion matrix showing predictions spread across all three classes, not one column.
 
 ---
 
